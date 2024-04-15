@@ -51,14 +51,13 @@ DMA_HandleTypeDef hdma_lpuart1_tx;
 TIM_HandleTypeDef htim1;
 
 /* USER CODE BEGIN PV */
-uint16_t ADC_RawRead[40] = {0};
-uint8_t ADCBytes[80];
+//uint16_t ADC_RawRead[40] = {0};
+uint16_t ADC_RawRead = 1;
+uint8_t ADCBytes[2];
 int Degree_position = 0;
 int Rad_position = 0;
 int PWM1;
 int PWM2;
-//uint16_t RxBuffer[20];
-//uint16_t TxBuffer[1];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -117,9 +116,9 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   UARTDMAConfig();
-  ADCBytes[0] = (uint8_t)(ADC_RawRead[0] & 0xFF); // Lower byte
-  ADCBytes[1] = (uint8_t)((ADC_RawRead[0] >> 8) & 0xFF); // Upper byte
-  HAL_UART_Transmit(&hlpuart1, ADCBytes , 80 ,10);
+//  ADCBytes[0] = (uint8_t)(ADC_RawRead[0] & 0xFF); // Lower byte
+//  ADCBytes[1] = (uint8_t)((ADC_RawRead[0] >> 8) & 0xFF); // Upper byte
+//  HAL_UART_Transmit(&hlpuart1, ADCBytes , 80 ,10);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -129,8 +128,12 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  Degree_position = (ADC_RawRead[0]*360.0)/4095.0;
-	  Rad_position = (ADC_RawRead[0]*3.14)/4095.0;
+	  //ADC_RawRead[40] = ADC;
+	  ADCBytes[0] = (uint8_t)(ADC_RawRead & 0xFF); // Lower byte
+	  ADCBytes[1] = (uint8_t)((ADC_RawRead >> 8) & 0xFF); // Upper byte
+	  HAL_UART_Transmit(&hlpuart1, ADCBytes , 80 ,10);
+	  Degree_position = (ADC_RawRead*360.0)/4095.0;
+	  Rad_position = (ADC_RawRead*3.14)/4095.0;
 	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM1);
 	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, PWM2);
   }
