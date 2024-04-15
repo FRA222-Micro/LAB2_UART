@@ -45,21 +45,20 @@ ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
 UART_HandleTypeDef hlpuart1;
-UART_HandleTypeDef huart1;
-DMA_HandleTypeDef hdma_usart1_rx;
-DMA_HandleTypeDef hdma_usart1_tx;
+DMA_HandleTypeDef hdma_lpuart1_rx;
+DMA_HandleTypeDef hdma_lpuart1_tx;
 
 TIM_HandleTypeDef htim1;
 
 /* USER CODE BEGIN PV */
-uint16_t ADC_RawRead[1]= {0};
+uint16_t ADC_RawRead[40] = {0};
+uint8_t ADCBytes[80];
 int Degree_position = 0;
 int Rad_position = 0;
 int PWM1;
 int PWM2;
-int x;
-uint16_t RxBuffer[20];
-uint16_t TxBuffer[40];
+//uint16_t RxBuffer[20];
+//uint16_t TxBuffer[1];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -69,10 +68,8 @@ static void MX_DMA_Init(void);
 static void MX_LPUART1_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM1_Init(void);
-static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 void UARTDMAConfig();
-void send_adc_to_matlab();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -113,7 +110,6 @@ int main(void)
   MX_LPUART1_UART_Init();
   MX_ADC1_Init();
   MX_TIM1_Init();
-  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
   HAL_ADC_Start_DMA(&hadc1, ADC_RawRead, 40);
@@ -121,8 +117,9 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   UARTDMAConfig();
-  HAL_UART_Transmit(&huart1, ADC_RawRead , 100 ,10);
-  send_adc_to_matlab();
+  ADCBytes[0] = (uint8_t)(ADC_RawRead[0] & 0xFF); // Lower byte
+  ADCBytes[1] = (uint8_t)((ADC_RawRead[0] >> 8) & 0xFF); // Upper byte
+  HAL_UART_Transmit(&hlpuart1, ADCBytes , 80 ,10);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -132,7 +129,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  ADC_RawRead[0] = 1;
 	  Degree_position = (ADC_RawRead[0]*360.0)/4095.0;
 	  Rad_position = (ADC_RawRead[0]*3.14)/4095.0;
 	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM1);
@@ -303,54 +299,6 @@ static void MX_LPUART1_UART_Init(void)
 }
 
 /**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART1_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART1_Init 0 */
-
-  /* USER CODE END USART1_Init 0 */
-
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart1.Init.ClockPrescaler = UART_PRESCALER_DIV1;
-  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_SetTxFifoThreshold(&huart1, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_SetRxFifoThreshold(&huart1, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_DisableFifoMode(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
-
-}
-
-/**
   * @brief TIM1 Initialization Function
   * @param None
   * @retval None
@@ -503,23 +451,27 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void UARTDMAConfig()
 {
-	HAL_UART_Receive_DMA(&huart1, RxBuffer, ADC_RawRead);
+	HAL_UART_Receive_DMA(&hlpuart1, ADCBytes, sizeof(ADCBytes));
 }
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-	if(huart == &huart1)
+	if(huart == &hlpuart1)
 	{
 		//(for string only) Add string stop symbol 10 to end string
-		RxBuffer[10] = '\0';
+		//RxBuffer[10] = '\0';
 		//return received char
 //		sprintf((char*) TxBuffer, "Received: %s\r\n", RxBuffer);
-		HAL_UART_Transmit_DMA(&huart1, TxBuffer, strlen((char*) TxBuffer));
+		HAL_UART_Transmit_DMA(&hlpuart1, ADCBytes, strlen((char*) ADCBytes));
 	}
 }
-void send_adc_to_matlab(uint16_t ADC_RawRead)
-{
-    // ส่งค่า ADC ผ่าน UART
-    UART_SendData(&huart1, 0x69);
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+
+    if(GPIO_Pin == GPIO_PIN_13){
+//        RxBuffer[10]=  '\0';
+    	//TxBuffer[1] = ADC_RawRead[0];
+        HAL_UART_Transmit_DMA(&hlpuart1, ADCBytes, 10);
+        HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+    }
 }
 /* USER CODE END 4 */
 
