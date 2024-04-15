@@ -51,8 +51,7 @@ DMA_HandleTypeDef hdma_lpuart1_tx;
 TIM_HandleTypeDef htim1;
 
 /* USER CODE BEGIN PV */
-//uint16_t ADC_RawRead[40] = {0};
-uint16_t ADC_RawRead = 1;
+uint16_t ADC_RawRead;
 uint8_t ADCBytes[2];
 int Degree_position = 0;
 int Rad_position = 0;
@@ -116,9 +115,6 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   UARTDMAConfig();
-//  ADCBytes[0] = (uint8_t)(ADC_RawRead[0] & 0xFF); // Lower byte
-//  ADCBytes[1] = (uint8_t)((ADC_RawRead[0] >> 8) & 0xFF); // Upper byte
-//  HAL_UART_Transmit(&hlpuart1, ADCBytes , 80 ,10);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -131,7 +127,7 @@ int main(void)
 	  //ADC_RawRead[40] = ADC;
 	  ADCBytes[0] = (uint8_t)(ADC_RawRead & 0xFF); // Lower byte
 	  ADCBytes[1] = (uint8_t)((ADC_RawRead >> 8) & 0xFF); // Upper byte
-	  HAL_UART_Transmit(&hlpuart1, ADCBytes , 80 ,10);
+	  HAL_UART_Transmit_DMA(&hlpuart1, ADCBytes , sizeof(ADCBytes));
 	  Degree_position = (ADC_RawRead*360.0)/4095.0;
 	  Rad_position = (ADC_RawRead*3.14)/4095.0;
 	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM1);
@@ -460,18 +456,12 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 	if(huart == &hlpuart1)
 	{
-		//(for string only) Add string stop symbol 10 to end string
-		//RxBuffer[10] = '\0';
-		//return received char
-//		sprintf((char*) TxBuffer, "Received: %s\r\n", RxBuffer);
 		HAL_UART_Transmit_DMA(&hlpuart1, ADCBytes, strlen((char*) ADCBytes));
 	}
 }
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 
     if(GPIO_Pin == GPIO_PIN_13){
-//        RxBuffer[10]=  '\0';
-    	//TxBuffer[1] = ADC_RawRead[0];
         HAL_UART_Transmit_DMA(&hlpuart1, ADCBytes, 10);
         HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
     }
