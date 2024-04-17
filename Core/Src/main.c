@@ -51,15 +51,21 @@ TIM_HandleTypeDef htim5;
 
 /* USER CODE BEGIN PV */
 uint16_t ADC_RawRead[40] = {0};
-int ADC_sum[1] = {0};
+//int ADC_sum[1] = {0};
 uint16_t ADC_avg[1] = {0};
 uint8_t ADCBytes[4];
 uint16_t datasend;
 int Degree_position = 0;
 int Rad_position = 0;
 uint8_t Recieve_PWM[5];
-int PWM = 0;
+int16_t PWM1 = 0;
+int PWM2 = 0;
 uint64_t _micros = 0;
+float setposition=0;
+int poten1=0;
+int poten2=0;
+float position=0;
+float error = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -74,6 +80,7 @@ static void MX_TIM5_Init(void);
 void avg();
 void UARTInterruptConfig();
 uint64_t micros();
+//void ADC_Read_blocking();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -123,6 +130,7 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   UARTInterruptConfig();
   HAL_TIM_Base_Start_IT(&htim5);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -132,6 +140,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  error = setposition - position;
+	  ADC_avg[0] = error;
 	  avg();
 	  static uint64_t timestamp = 0;
 	  uint64_t currentTime = micros();
@@ -151,8 +161,9 @@ int main(void)
 
 	  Degree_position = (datasend*360.0)/4095.0;
 	  Rad_position = (datasend*3.14)/4095.0;
-	  PWM = (int16_t)(Recieve_PWM[2]<< 8) + Recieve_PWM[1];
-	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM);
+	  PWM1 = (int16_t)(Recieve_PWM[2]<< 8) + Recieve_PWM[1];
+	  PWM2 = (int16_t)((PWM1*65535)/4095);
+	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM2);
   }
   /* USER CODE END 3 */
 }
@@ -229,11 +240,11 @@ static void MX_ADC1_Init(void)
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.GainCompensation = 0;
-  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
   hadc1.Init.ContinuousConvMode = ENABLE;
-  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.NbrOfConversion = 2;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
@@ -261,6 +272,15 @@ static void MX_ADC1_Init(void)
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_2;
+  sConfig.Rank = ADC_REGULAR_RANK_2;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -504,14 +524,20 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
 void avg()
 {
-	for (int i = 0; i < 40; i++)
-	{
-		ADC_sum[0] += ADC_RawRead[(i)];
-	}
-		ADC_avg[0] = ADC_sum[0]/40;
-		ADC_sum[0] = 0;
+	 poten1=0;
+	 poten2=0;
+	for (int i = 0; i <= 38; i+=2){
+
+		poten1 += ADC_RawRead[i];
+		poten2 += ADC_RawRead[i+1];
+		}
+
+         setposition =((poten2/20.0)/4095.0)*360.0;
+         position= ((poten1/20.0)/4095.0)*360.0;
+
 }
 void UARTInterruptConfig()
 {
