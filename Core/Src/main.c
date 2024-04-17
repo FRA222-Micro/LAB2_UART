@@ -45,18 +45,21 @@ ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
 UART_HandleTypeDef hlpuart1;
-DMA_HandleTypeDef hdma_lpuart1_rx;
-DMA_HandleTypeDef hdma_lpuart1_tx;
 
 TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim5;
 
 /* USER CODE BEGIN PV */
-uint16_t ADC_RawRead;
-uint8_t ADCBytes[2];
+uint16_t ADC_RawRead[40] = {0};
+int ADC_sum[1] = {0};
+uint16_t ADC_avg[1] = {0};
+uint8_t ADCBytes[4];
+uint16_t datasend;
 int Degree_position = 0;
 int Rad_position = 0;
-int PWM1;
-int PWM2;
+uint8_t Recieve_PWM[5];
+int PWM = 0;
+uint64_t _micros = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -66,8 +69,11 @@ static void MX_DMA_Init(void);
 static void MX_LPUART1_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM1_Init(void);
+static void MX_TIM5_Init(void);
 /* USER CODE BEGIN PFP */
-void UARTDMAConfig();
+void avg();
+void UARTInterruptConfig();
+uint64_t micros();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -108,13 +114,15 @@ int main(void)
   MX_LPUART1_UART_Init();
   MX_ADC1_Init();
   MX_TIM1_Init();
+  MX_TIM5_Init();
   /* USER CODE BEGIN 2 */
   HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
   HAL_ADC_Start_DMA(&hadc1, ADC_RawRead, 40);
   HAL_TIM_Base_Start(&htim1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
-  UARTDMAConfig();
+  UARTInterruptConfig();
+  HAL_TIM_Base_Start_IT(&htim5);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -124,14 +132,27 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  //ADC_RawRead[40] = ADC;
-	  ADCBytes[0] = (uint8_t)(ADC_RawRead & 0xFF); // Lower byte
-	  ADCBytes[1] = (uint8_t)((ADC_RawRead >> 8) & 0xFF); // Upper byte
-	  HAL_UART_Transmit_DMA(&hlpuart1, ADCBytes , sizeof(ADCBytes));
-	  Degree_position = (ADC_RawRead*360.0)/4095.0;
-	  Rad_position = (ADC_RawRead*3.14)/4095.0;
-	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM1);
-	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, PWM2);
+	  avg();
+	  static uint64_t timestamp = 0;
+	  uint64_t currentTime = micros();
+
+	  if(currentTime > timestamp)
+	  {
+		  timestamp = currentTime + 5000; //us 200 Hz
+		  datasend = ADC_avg[0];
+
+		  ADCBytes[0] = 0x69; //Header
+		  ADCBytes[1] = (uint8_t)(datasend & 0xFF); // Lower byte
+		  ADCBytes[2] = (uint8_t)((datasend >> 8) & 0xFF); // Upper byte
+		  ADCBytes[3] = 0x0A; //Terminater
+
+		  HAL_UART_Transmit(&hlpuart1, ADCBytes , sizeof(ADCBytes), 10);
+	  }
+
+	  Degree_position = (datasend*360.0)/4095.0;
+	  Rad_position = (datasend*3.14)/4095.0;
+	  PWM = (int16_t)(Recieve_PWM[2]<< 8) + Recieve_PWM[1];
+	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM);
   }
   /* USER CODE END 3 */
 }
@@ -318,7 +339,7 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 16;
+  htim1.Init.Prescaler = 169;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim1.Init.Period = 1000;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -355,10 +376,6 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
   sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
   sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
@@ -384,6 +401,51 @@ static void MX_TIM1_Init(void)
 }
 
 /**
+  * @brief TIM5 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM5_Init(void)
+{
+
+  /* USER CODE BEGIN TIM5_Init 0 */
+
+  /* USER CODE END TIM5_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM5_Init 1 */
+
+  /* USER CODE END TIM5_Init 1 */
+  htim5.Instance = TIM5;
+  htim5.Init.Prescaler = 169;
+  htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim5.Init.Period = 4294967295;
+  htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim5.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim5) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim5, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim5, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM5_Init 2 */
+
+  /* USER CODE END TIM5_Init 2 */
+
+}
+
+/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -397,12 +459,6 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel1_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-  /* DMA1_Channel2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
-  /* DMA1_Channel3_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel3_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel3_IRQn);
 
 }
 
@@ -448,23 +504,38 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void UARTDMAConfig()
+void avg()
 {
-	HAL_UART_Receive_DMA(&hlpuart1, ADCBytes, sizeof(ADCBytes));
+	for (int i = 0; i < 40; i++)
+	{
+		ADC_sum[0] += ADC_RawRead[(i)];
+	}
+		ADC_avg[0] = ADC_sum[0]/40;
+		ADC_sum[0] = 0;
+}
+void UARTInterruptConfig()
+{
+	HAL_UART_Receive_IT(&hlpuart1, Recieve_PWM, 4);
 }
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 	if(huart == &hlpuart1)
 	{
-		HAL_UART_Transmit_DMA(&hlpuart1, ADCBytes, strlen((char*) ADCBytes));
+		Recieve_PWM[4] = '\0';
+		HAL_UART_Transmit_IT(&hlpuart1, Recieve_PWM, 4);
 	}
 }
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
-
-    if(GPIO_Pin == GPIO_PIN_13){
-        HAL_UART_Transmit_DMA(&hlpuart1, ADCBytes, 10);
-        HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-    }
+//MicroSecondTimer Implement
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+	if(htim == &htim5)
+	{
+		_micros += UINT32_MAX;
+	}
+}
+uint64_t micros()
+{
+	return __HAL_TIM_GET_COUNTER(&htim5)+_micros;
 }
 /* USER CODE END 4 */
 
