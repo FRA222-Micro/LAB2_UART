@@ -163,7 +163,16 @@ int main(void)
 	  Rad_position = (datasend*3.14)/4095.0;
 	  PWM1 = (int16_t)(Recieve_PWM[2]<< 8) + Recieve_PWM[1];
 	  PWM2 = (int16_t)((PWM1*65535)/4095);
-	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM2);
+	  if(PWM1 > 0)
+	  {
+		  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
+		  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, PWM2);
+	  }
+	  else if(PWM1 < 0)
+	  {
+		  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM2);
+		  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
+	  }
   }
   /* USER CODE END 3 */
 }
@@ -393,6 +402,10 @@ static void MX_TIM1_Init(void)
   sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
   sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
   }
