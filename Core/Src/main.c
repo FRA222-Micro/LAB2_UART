@@ -42,7 +42,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
-DMA_HandleTypeDef hdma_adc1;
 
 UART_HandleTypeDef hlpuart1;
 
@@ -50,7 +49,7 @@ TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim5;
 
 /* USER CODE BEGIN PV */
-uint16_t ADC_RawRead[40] = {0};
+//uint16_t ADC_RawRead[40] = {0};
 //int ADC_sum[1] = {0};
 uint16_t ADC_avg[1] = {0};
 uint8_t ADCBytes[4];
@@ -66,17 +65,46 @@ int poten1=0;
 int poten2=0;
 float position=0;
 float error = 0;
+float  FEEDBACK=0;
+float speed;
+
+struct _ADC_tag
+{
+ADC_ChannelConfTypeDef Config;
+uint16_t data;
+};
+struct _ADC_tag ADC1_Channel[2] =
+{
+{
+.Config.Channel = ADC_CHANNEL_1,
+.Config.Rank = ADC_REGULAR_RANK_1,
+.Config.SamplingTime = ADC_SAMPLETIME_640CYCLES_5,
+.Config.SingleDiff = ADC_SINGLE_ENDED,
+.Config.OffsetNumber = ADC_OFFSET_NONE,
+.Config.Offset = 0,
+.data = 0
+},
+{
+.Config.Channel = ADC_CHANNEL_5,
+.Config.Rank = ADC_REGULAR_RANK_2,
+.Config.SamplingTime = ADC_SAMPLETIME_640CYCLES_5,
+.Config.SingleDiff = ADC_SINGLE_ENDED,
+.Config.OffsetNumber = ADC_OFFSET_NONE,
+.Config.Offset = 0,
+.data = 0
+},
+};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
 static void MX_LPUART1_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM5_Init(void);
 /* USER CODE BEGIN PFP */
+void ADC_Read_blocking();
 void avg();
 void UARTInterruptConfig();
 uint64_t micros();
@@ -117,14 +145,14 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
   MX_LPUART1_UART_Init();
   MX_ADC1_Init();
   MX_TIM1_Init();
   MX_TIM5_Init();
   /* USER CODE BEGIN 2 */
   HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
-  HAL_ADC_Start_DMA(&hadc1, ADC_RawRead, 40);
+
+
   HAL_TIM_Base_Start(&htim1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
@@ -140,39 +168,54 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  error = setposition - position;
-	  ADC_avg[0] = error;
+	  ADC_Read_blocking();
 	  avg();
+	  error = 2048.0 - position;
+	  ADC_avg[0] = position;
+	  datasend=ADC_avg[0];
+
 	  static uint64_t timestamp = 0;
 	  uint64_t currentTime = micros();
+
+
 
 	  if(currentTime > timestamp)
 	  {
 		  timestamp = currentTime + 5000; //us 200 Hz
 		  datasend = ADC_avg[0];
 
-		  ADCBytes[0] = 0x69; //Header
+		  ADCBytes[0] = 0x45; //Header
 		  ADCBytes[1] = (uint8_t)(datasend & 0xFF); // Lower byte
 		  ADCBytes[2] = (uint8_t)((datasend >> 8) & 0xFF); // Upper byte
 		  ADCBytes[3] = 0x0A; //Terminater
 
 		  HAL_UART_Transmit(&hlpuart1, ADCBytes , sizeof(ADCBytes), 10);
 	  }
-
+	  UARTInterruptConfig();
 	  Degree_position = (datasend*360.0)/4095.0;
 	  Rad_position = (datasend*3.14)/4095.0;
 	  PWM1 = (int16_t)(Recieve_PWM[2]<< 8) + Recieve_PWM[1];
+	  FEEDBACK =PWM1;
 	  PWM2 = (int16_t)((PWM1*65535)/4095);
-	  if(PWM1 > 0)
+
+
+	  if(error > 0)
 	  {
-		  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
-		  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, PWM2);
+
+		  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1,0);
+		  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2,PWM1);
 	  }
-	  else if(PWM1 < 0)
+	  else if(error < 0)
 	  {
-		  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM2);
+
+		  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM1);
 		  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
 	  }
+	  else if(error==0 )
+	  	  {
+	  		  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
+	  		  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
+	  	  }
   }
   /* USER CODE END 3 */
 }
@@ -252,12 +295,12 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
-  hadc1.Init.ContinuousConvMode = ENABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.NbrOfConversion = 2;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.DMAContinuousRequests = ENABLE;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.OversamplingMode = DISABLE;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -288,7 +331,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
-  sConfig.Channel = ADC_CHANNEL_2;
+  sConfig.Channel = ADC_CHANNEL_5;
   sConfig.Rank = ADC_REGULAR_RANK_2;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -370,7 +413,7 @@ static void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 169;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 1000;
+  htim1.Init.Period = 32675;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -479,23 +522,6 @@ static void MX_TIM5_Init(void)
 }
 
 /**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMAMUX1_CLK_ENABLE();
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Channel1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -537,19 +563,26 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void ADC_Read_blocking()
+{
+static uint32_t TimeStamp = 0;
+if( HAL_GetTick()<TimeStamp) return;
+TimeStamp = HAL_GetTick()+1;
+for(int i=0;i<2;i++)
+{
+HAL_ADC_ConfigChannel(&hadc1, &ADC1_Channel[i].Config);
+HAL_ADC_Start(&hadc1);
+HAL_ADC_PollForConversion(&hadc1, 100);
+ADC1_Channel[i].data = HAL_ADC_GetValue(&hadc1);
+HAL_ADC_Stop(&hadc1);
+}
+}
 
 void avg()
 {
-	 poten1=0;
-	 poten2=0;
-	for (int i = 0; i <= 38; i+=2){
-
-		poten1 += ADC_RawRead[i];
-		poten2 += ADC_RawRead[i+1];
-		}
 
          setposition =((poten2/20.0)/4095.0)*360.0;
-         position= ((poten1/20.0)/4095.0)*360.0;
+         position= ADC1_Channel[0].data;
 
 }
 void UARTInterruptConfig()
@@ -561,7 +594,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 	if(huart == &hlpuart1)
 	{
 		Recieve_PWM[4] = '\0';
-		HAL_UART_Transmit_IT(&hlpuart1, Recieve_PWM, 4);
+		HAL_UART_Receive_IT(&hlpuart1, Recieve_PWM, 4);
 	}
 }
 //MicroSecondTimer Implement
